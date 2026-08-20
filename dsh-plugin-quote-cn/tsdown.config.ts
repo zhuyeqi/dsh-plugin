@@ -1,6 +1,6 @@
 import { defineConfig } from 'tsdown';
 
-const PACKAGE_NAME = '@your-org/dsh-plugin-quote-cn';
+const PACKAGE_NAME = '@zhuyeqi/dsh-plugin-quote-cn';
 const CLIENT_EXTERNALS = ['react', 'react/jsx-runtime'];
 
 export default defineConfig([

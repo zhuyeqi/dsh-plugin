@@ -1,5 +1,5 @@
 {
-  "name": "@your-org/dsh-plugin-quote-cn",
+  "name": "@zhuyeqi/dsh-plugin-quote-cn",
   "version": "0.1.1",
   "description": "A-share (CN stock) quotes plugin for DeepSeek Harness: settings watchlist + agent tools",
   "type": "module",

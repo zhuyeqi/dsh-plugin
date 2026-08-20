@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-	id: "@your-org/dsh-plugin-quote-cn",
+	id: "@zhuyeqi/dsh-plugin-quote-cn",
 	factory: (require) => {
 		var module = { exports: {} };
 		var exports = module.exports;

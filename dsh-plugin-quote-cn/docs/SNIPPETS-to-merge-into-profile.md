@@ -5,7 +5,7 @@
 
 - insert:
     - id: quote-cn
-      name: '@your-org/dsh-plugin-quote-cn'
+      name: '@zhuyeqi/dsh-plugin-quote-cn'
       inject: [timer]
       config:
         pollIntervalMs: 5000

@@ -16,7 +16,7 @@ export function mountQuoteRoutes(webServer: WebServerLike, service: QuoteCn): ()
       kind: 'exact',
       path: '/quote-cn/health',
       handler: (_req, res) => {
-        sendJson(res, 200, { ok: true, plugin: '@your-org/dsh-plugin-quote-cn' });
+        sendJson(res, 200, { ok: true, plugin: '@zhuyeqi/dsh-plugin-quote-cn' });
       },
     }),
     webServer.register({

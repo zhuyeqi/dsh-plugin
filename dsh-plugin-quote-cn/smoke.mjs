@@ -15,7 +15,7 @@ check('Config 存在', host.Config !== undefined);
 
 console.log('\n[2] client ModuleLoader 产物');
 const client = readFileSync('lib/client.js', 'utf8');
-check('client.js 含 ModuleLoader id', client.includes('window.__ModuleLoader__.load') && client.includes('@your-org/dsh-plugin-quote-cn'));
+check('client.js 含 ModuleLoader id', client.includes('window.__ModuleLoader__.load') && client.includes('@zhuyeqi/dsh-plugin-quote-cn'));
 check('client.js 导出 apply', /exports\.apply\s*=/.test(client) || /exports\["apply"\]/.test(client) || client.includes('exports.apply'));
 
 console.log('\n[3] 工具注册 (mock ctx)');

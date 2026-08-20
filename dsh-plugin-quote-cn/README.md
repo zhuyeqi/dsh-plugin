@@ -1,4 +1,4 @@
-# @your-org/dsh-plugin-quote-cn
+# @zhuyeqi/dsh-plugin-quote-cn
 
 A 股行情插件：设置页「行情」自选列表 + 模型可调用的 `quote_get` / `quote_search` / `quote_kline`。
 
@@ -53,7 +53,7 @@ dsh web
 
 ```yaml
 plugins:
-  '@your-org/dsh-plugin-quote-cn':
+  '@zhuyeqi/dsh-plugin-quote-cn':
     pollIntervalMs: 3000
     defaultProvider: eastmoney
 ```

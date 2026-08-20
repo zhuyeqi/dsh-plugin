@@ -36,7 +36,7 @@
 ### 2.1 包名建议
 
 ```
-@your-org/dsh-plugin-quote-cn
+@zhuyeqi/dsh-plugin-quote-cn
 ```
 
 DSH 现有的命名风格是 `@deepseek-ai/dsh-*-<role>`；第三方插件保持 `@<org>/dsh-plugin-<feature>` 即可避免和官方包冲突。
@@ -79,7 +79,7 @@ dsh-plugin-quote-cn/
 
 ```jsonc
 {
-  "name": "@your-org/dsh-plugin-quote-cn",
+  "name": "@zhuyeqi/dsh-plugin-quote-cn",
   "version": "0.1.0",
   "type": "module",
   "main": "lib/index.js",
@@ -149,7 +149,7 @@ dsh-plugin-quote-cn/
 
 # ── row 1：行情服务（host plane，单例） ────────────────────────────────────
 - id: quote-cn-service
-  name: '@your-org/dsh-plugin-quote-cn/service'
+  name: '@zhuyeqi/dsh-plugin-quote-cn/service'
   inject: [timer]                   # 需要定时器能力
   config:
     pollIntervalMs: 5000            # 交易时段 5 s 轮询
@@ -163,12 +163,12 @@ dsh-plugin-quote-cn/
 # ── row 2：行情 Remote 网关（host → browser RPC 通道） ───────────────────────
 #    浏览器侧 UI 通过 ctx.connection.call('quote-cn.<method>') 访问行情缓存。
 - id: quote-cn-api
-  name: '@your-org/dsh-plugin-quote-cn/api'
+  name: '@zhuyeqi/dsh-plugin-quote-cn/api'
 
 # ── row 3：模型工具（agent plane，每个 preset 决定挂不挂） ──────────────────
 #    注意：tool 行必须放在能 inject 'tools' 和 'systemPrompt' 的位置。
 - id: quote-cn-tools
-  name: '@your-org/dsh-plugin-quote-cn/tools'
+  name: '@zhuyeqi/dsh-plugin-quote-cn/tools'
   inject: [tools, systemPrompt, quote-cn-service]
 ```
 
@@ -459,7 +459,7 @@ import { apply as sidebarApply } from './client/sidebar';
 import { apply as cardApply }    from './client/quote-card';
 
 window.__ModuleLoader__.load({
-  id: '@your-org/dsh-plugin-quote-cn',
+  id: '@zhuyeqi/dsh-plugin-quote-cn',
   factory: () => ({
     apply(ctx) {
       sidebarApply(ctx);
@@ -483,16 +483,16 @@ window.__ModuleLoader__.load({
 # /Users/kk/.dsh/profiles/web/cordis.patch.yml
 - insert:
     - id: quote-cn-service
-      name: '@your-org/dsh-plugin-quote-cn/service'
+      name: '@zhuyeqi/dsh-plugin-quote-cn/service'
       inject: [timer]
       config:
         pollIntervalMs: 5000
 
     - id: quote-cn-api
-      name: '@your-org/dsh-plugin-quote-cn/api'
+      name: '@zhuyeqi/dsh-plugin-quote-cn/api'
 
     - id: quote-cn-tools
-      name: '@your-org/dsh-plugin-quote-cn/tools'
+      name: '@zhuyeqi/dsh-plugin-quote-cn/tools'
       inject: [tools, systemPrompt, quote-cn-service]
 ```
 
@@ -509,7 +509,7 @@ pnpm run bundle                       # 产物进 lib/
 # 2. 在 web profile 里以本地路径安装
 dsh plugin --profile web add file:$(pwd)
 #    ↑ dsh-plugin-*.js 第 108 行把这个命令转发给 pnpm，
-#      pnpm 把 @your-org/dsh-plugin-quote-cn 写到 profile/package.json
+#      pnpm 把 @zhuyeqi/dsh-plugin-quote-cn 写到 profile/package.json
 #      并 append 进 dsh.profile.bundles。
 
 # 3. 重启 web
@@ -521,7 +521,7 @@ dsh web
 ```yaml
 # /Users/kk/.dsh/settings.yaml
 plugins:
-  '@your-org/dsh-plugin-quote-cn/service':
+  '@zhuyeqi/dsh-plugin-quote-cn/service':
     pollIntervalMs: 3000           # 交易时段更密
     defaultProvider: premium
     premium:

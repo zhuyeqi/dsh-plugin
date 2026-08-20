@@ -8,7 +8,7 @@ for (const junk of ['lib/index.ts', 'lib/index.mjs', 'lib/types']) {
 }
 
 const client = await readFile('lib/client.js', 'utf8');
-if (!client.includes('window.__ModuleLoader__.load') || !client.includes('@your-org/dsh-plugin-quote-cn')) {
+if (!client.includes('window.__ModuleLoader__.load') || !client.includes('@zhuyeqi/dsh-plugin-quote-cn')) {
   throw new Error(`lib/client.js is not a ModuleLoader factory bundle.\ngot: ${client.slice(0, 160)}`);
 }
 if (!existsSync('lib/index.js')) {

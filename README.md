@@ -11,7 +11,7 @@ A 股行情插件：侧边栏自选盯盘（自选/指数/分时/K线/sparkline/
 安装：
 
 ```bash
-dsh plugin --profile web add github:zhuyeqi/dsh-plugin#dsh-plugin-quote-cn
+dsh plugin --profile web add github:zhuyeqi/dsh-plugin/dsh-plugin-quote-cn
 # 或本地
 dsh plugin --profile web add file:./dsh-plugin-quote-cn
 ```

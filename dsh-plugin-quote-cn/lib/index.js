@@ -622,7 +622,7 @@ function mountQuoteRoutes(webServer, service) {
 			handler: (_req, res) => {
 				sendJson(res, 200, {
 					ok: true,
-					plugin: "@your-org/dsh-plugin-quote-cn"
+					plugin: "@zhuyeqi/dsh-plugin-quote-cn"
 				});
 			}
 		}),
@@ -1071,7 +1071,7 @@ function registerQuoteTools(ctx, service) {
 * Host entry for the A-share quote plugin.
 *
 * One cordis row, named after this package so `dsh-client-modules` can
-* discover `dsh.client` and serve `/plugins/@your-org/dsh-plugin-quote-cn/client.js`.
+* discover `dsh.client` and serve `/plugins/@zhuyeqi/dsh-plugin-quote-cn/client.js`.
 */
 const name = "quote-cn";
 const inject = ["timer"];
