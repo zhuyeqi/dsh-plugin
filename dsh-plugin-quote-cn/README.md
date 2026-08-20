@@ -31,6 +31,23 @@ dsh web
 
 不要把 `cordis.patch.yml` 再抄进 `~/.dsh/profiles/web/cordis.patch.yml`。bundle 层已经注入 `quote-cn` 这一行；再抄一遍会重复 id。
 
+### 注意：`file:` 安装是快照，改包名/重新打包后必须重装
+
+`file:` 依赖会被 pnpm 复制进 `~/.dsh/profiles/web/node_modules/`（不是软链回本仓库），不跟随源码目录更新。改包名 scope（如 `@your-org` → `@zhuyeqi`）时若只改了源码和 profile 的 `package.json`，`node_modules` 里仍是旧拷贝——旧拷贝的 `cordis.patch.yml` 按旧包名插 loader entry，而 `node_modules` 里已无该包，web 启动直接失败：
+
+```
+Error: dsh: plugin tree failed to load ... Cannot find package '@your-org/dsh-plugin-quote-cn' imported from ~/.dsh/profiles/web/
+```
+
+修复（版本号不变时 pnpm 可能跳过刷新，删掉旧拷贝最稳）：
+
+```bash
+rm -rf ~/.dsh/profiles/web/node_modules/@zhuyeqi
+cd ~/.dsh/profiles/web && pnpm install   # 会同步刷新 pnpm-lock.yaml 里的旧包名
+```
+
+验证：`grep -r your-org ~/.dsh/profiles/web/pnpm-lock.yaml` 无输出；在 profile 目录下 `node --input-type=module -e "console.log(import.meta.resolve('@zhuyeqi/dsh-plugin-quote-cn'))"` 能解析到 `node_modules` 里的 `lib/index.js`。
+
 ## 使用
 
 - Web：打开设置，左侧会出现「行情」。
