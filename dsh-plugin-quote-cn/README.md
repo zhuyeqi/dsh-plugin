@@ -22,8 +22,8 @@ cd dsh-plugin-quote-cn
 pnpm install
 pnpm run bundle
 
-# 装进 web profile（会写入 dsh.profile.bundles，bundle 自带 cordis.patch.yml）
-dsh plugin --profile web add file:$(pwd)
+# 装进 web profile（目录形式 → link: 软链本仓库；会写入 dsh.profile.bundles，bundle 自带 cordis.patch.yml）
+dsh plugin --profile web add .
 
 # 重启 web
 dsh web
@@ -31,22 +31,26 @@ dsh web
 
 不要把 `cordis.patch.yml` 再抄进 `~/.dsh/profiles/web/cordis.patch.yml`。bundle 层已经注入 `quote-cn` 这一行；再抄一遍会重复 id。
 
-### 注意：`file:` 安装是快照，改包名/重新打包后必须重装
+### `link:` 与 `file:`：装目录，别装快照
 
-`file:` 依赖会被 pnpm 复制进 `~/.dsh/profiles/web/node_modules/`（不是软链回本仓库），不跟随源码目录更新。改包名 scope（如 `@your-org` → `@zhuyeqi`）时若只改了源码和 profile 的 `package.json`，`node_modules` 里仍是旧拷贝——旧拷贝的 `cordis.patch.yml` 按旧包名插 loader entry，而 `node_modules` 里已无该包，web 启动直接失败：
+`dsh plugin add .`（目录形式）生成 `link:` 软链——profile 的 `node_modules/@zhuyeqi/dsh-plugin-quote-cn` 直指本仓库，改码重新打包后**无需重装**，重启即生效（官方教程的分发方式）。
 
-```
-Error: dsh: plugin tree failed to load ... Cannot find package '@your-org/dsh-plugin-quote-cn' imported from ~/.dsh/profiles/web/
-```
-
-修复（版本号不变时 pnpm 可能跳过刷新，删掉旧拷贝最稳）：
+不要用 `file:$(pwd)`：那是把当前构建产物打包**拷贝**进 profile 的快照，不跟随源码。快照不刷新的典型症状：改包名 scope（如 `@your-org` → `@zhuyeqi`）或重新 bundle 后，旧拷贝的 `cordis.patch.yml` 仍按旧包名插 loader entry，启动报 `Cannot find package '@your-org/...'`、或干脆一直跑旧版本。若 profile 已按 `file:` 装过，切到 `link:`：
 
 ```bash
 rm -rf ~/.dsh/profiles/web/node_modules/@zhuyeqi
-cd ~/.dsh/profiles/web && pnpm install   # 会同步刷新 pnpm-lock.yaml 里的旧包名
+dsh plugin --profile web add /Users/kk/Projects/deepseek-harness/dsh-plugin-quote-cn
 ```
 
-验证：`grep -r your-org ~/.dsh/profiles/web/pnpm-lock.yaml` 无输出；在 profile 目录下 `node --input-type=module -e "console.log(import.meta.resolve('@zhuyeqi/dsh-plugin-quote-cn'))"` 能解析到 `node_modules` 里的 `lib/index.js`。
+## 开发
+
+```bash
+pnpm run watch    # tsdown --watch：改 src/ 即重写 lib/
+```
+
+profile 已 `link:` 本目录，所以开发闭环是：改 `src/` → watch 自动重写 `lib/` → 重启 `dsh web`。没有 bundle、没有 add、没有 profile 重装。
+
+`link:` 的取舍：profile 永远运行本仓库的当前状态——`lib/` 被改坏的半途重启，行情面板会挂，修好再重启即可。
 
 ## 使用
 
