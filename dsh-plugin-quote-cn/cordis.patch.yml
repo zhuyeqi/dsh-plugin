@@ -1,0 +1,21 @@
+# dsh-plugin-quote-cn cordis.patch.yml
+#
+# One host row whose `name` is this package, so:
+#   - cordis loads lib/index.js (`apply` / `inject` / `Config`)
+#   - dsh-client-modules sees dsh.client and serves lib/client.js
+#
+# Do not copy these rows into ~/.dsh/profiles/web/cordis.patch.yml —
+# `dsh plugin add` already stacks this file as a bundle layer.
+
+- insert:
+    - id: quote-cn
+      name: '@your-org/dsh-plugin-quote-cn'
+      inject: [timer]
+      config:
+        pollIntervalMs: 5000
+        maxConcurrentFetches: 4
+        cacheTtlMs: 4000
+        defaultProvider: eastmoney
+        premium:
+          provider: longbridge
+          tokenEnv: LONGBRIDGE_TOKEN
