@@ -1,7 +1,8 @@
 import { defineTool } from '@deepseek-ai/dsh-tools';
+import type { Context } from '@deepseek-ai/cordis';
 import type { QuoteCn } from '../service/quote-cn-service';
 
-export function registerQuoteSearchTool(ctx: any, service: QuoteCn) {
+export function registerQuoteSearchTool(ctx: Context, service: QuoteCn) {
   ctx.systemPrompt.section({
     name: 'tool:quote_search',
     order: 201,
@@ -36,7 +37,7 @@ Returns up to 10 matches; pair with quote_get for full quote.`,
           ? 'No matching stocks found.'
           : value.map((v) => `${v.code} ${v.name}`).join('\n'),
       }],
-      presentationMeta: (_args: unknown, value: unknown) => ({ matches: value }),
+      presentationMeta: (_args, value) => ({ matches: value }),
     },
     isConcurrencySafe: () => true,
     async execute(args: { query: string; market?: string }) {

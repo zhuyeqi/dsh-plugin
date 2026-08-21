@@ -1,7 +1,8 @@
 import { defineTool } from '@deepseek-ai/dsh-tools';
+import type { Context } from '@deepseek-ai/cordis';
 import type { QuoteCn } from '../service/quote-cn-service';
 
-export function registerQuoteKlineTool(ctx: any, service: QuoteCn) {
+export function registerQuoteKlineTool(ctx: Context, service: QuoteCn) {
   ctx.systemPrompt.section({
     name: 'tool:quote_kline',
     order: 202,
@@ -51,7 +52,7 @@ Supports daily/weekly/monthly and minute-level (5/15/30/60min).`,
 `${value.code} ${value.period} ${value.bars.length} bars. ` +
 `Last close: ¥${value.bars[value.bars.length - 1]?.close.toFixed(2)}`,
       }],
-      presentationMeta: (_args: unknown, value: unknown) => value as Record<string, unknown>,
+      presentationMeta: (_args, value) => value,
     },
     isConcurrencySafe: () => true,
     async execute(args: { code: string; period: string; count: number; adjust: string }) {

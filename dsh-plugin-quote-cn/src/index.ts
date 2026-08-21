@@ -5,6 +5,9 @@
  * discover `dsh.client` and serve `/plugins/@zhuyeqi/dsh-plugin-quote-cn/client.js`.
  */
 import z from '@deepseek-ai/schemastery';
+import type { Context } from '@deepseek-ai/cordis';
+// Types-only: pulls the `ctx.timer` mixin declarations into this program (runtime is host-provided).
+import type {} from '@deepseek-ai/cordis-plugin-timer';
 import { createQuoteCnService, type QuoteCnConfig } from './service/quote-cn-service';
 import { mountQuoteRoutes } from './api/routes';
 import { registerQuoteTools } from './tools/index';
@@ -23,7 +26,7 @@ export const Config = z.object({
   }).default({ provider: 'longbridge', tokenEnv: 'LONGBRIDGE_TOKEN' }),
 });
 
-export function apply(ctx: any, config: QuoteCnConfig) {
+export function apply(ctx: Context, config: QuoteCnConfig) {
   const service = createQuoteCnService(config);
 
   ctx.effect(
@@ -31,14 +34,14 @@ export function apply(ctx: any, config: QuoteCnConfig) {
     'quote-cn: poll',
   );
 
-  ctx.inject(['webServer'], (host: any) => {
+  ctx.inject(['webServer'], (host: Context) => {
     host.effect(
       () => mountQuoteRoutes(host.webServer, service),
       'quote-cn: http routes',
     );
   });
 
-  ctx.inject(['tools', 'systemPrompt'], (agent: any) => {
+  ctx.inject(['tools', 'systemPrompt'], (agent: Context) => {
     registerQuoteTools(agent, service);
   });
 }

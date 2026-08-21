@@ -1,8 +1,9 @@
 import { defineTool } from '@deepseek-ai/dsh-tools';
+import type { Context } from '@deepseek-ai/cordis';
 import type { QuoteCn } from '../service/quote-cn-service';
 import type { Quote } from '../service/types';
 
-export function registerQuoteGetTool(ctx: any, service: QuoteCn) {
+export function registerQuoteGetTool(ctx: Context, service: QuoteCn) {
   ctx.systemPrompt.section({
     name: 'tool:quote_get',
     order: 200,

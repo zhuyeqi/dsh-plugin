@@ -2,12 +2,20 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { requestUrl, sendJson } from './http';
 import type { QuoteCn } from '../service/quote-cn-service';
 
-interface WebServerLike {
+export interface WebServerLike {
   register(route: {
     kind: 'exact' | 'prefix';
     path: string;
     handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
   }): () => void;
+}
+
+// Structural view of the host's webServer service, declared via merging so typed
+// contexts can access `host.webServer` without depending on the host package.
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    webServer: WebServerLike;
+  }
 }
 
 export function mountQuoteRoutes(webServer: WebServerLike, service: QuoteCn): () => void {
