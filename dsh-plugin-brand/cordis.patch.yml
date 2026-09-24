@@ -1,0 +1,18 @@
+# dsh-plugin-brand bundle patch layer.
+#
+# One host row whose `name` is this package, so:
+#   - cordis loads lib/index.js (`apply` / `inject` / `Config`)
+#   - dsh-client-modules sees dsh.client and serves lib/client.js
+#
+# Do not copy these rows into ~/.dsh/profiles/web/cordis.patch.yml —
+# the profile's dsh.profile.bundles list already stacks this file as a
+# bundle layer.
+
+- insert:
+    - id: brand
+      name: dsh-plugin-brand
+      config:
+        # Composition-layer default: what the brand name shows before any
+        # user override, and what a reset in Settings returns to. Users
+        # override it live under Settings → General → 品牌名.
+        defaultName: KK
