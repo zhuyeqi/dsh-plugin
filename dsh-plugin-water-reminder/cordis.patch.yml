@@ -1,0 +1,3 @@
+- insert:
+    - id: water-reminder
+      name: '@zhuyeqi/dsh-plugin-water-reminder'

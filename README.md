@@ -22,6 +22,12 @@ dsh plugin --profile web add ./dsh-plugin-quote-cn
 
 可配置的侧边栏品牌名插件：`brand` settings namespace + Settings → General 编辑行，修改即时生效，持久化在 `~/.dsh/settings.yaml`。安装方式同上（`add ./dsh-plugin-brand`）。
 
+### dsh-plugin-water-reminder
+
+喝水提醒：输入框下方常驻条显示今日杯数/目标/进度与下次提醒倒计时（`+一杯`、`暂停`），到点在右下角浮层弹出提醒卡片（`喝好了 +1` / `5 分钟后再提醒` / 关闭）；杯数按日期存 `localStorage`，跨天归零。安装方式同上（`add ./dsh-plugin-water-reminder`）。
+
+详见 [dsh-plugin-water-reminder/README.md](./dsh-plugin-water-reminder/README.md)。
+
 ## 故障排查
 
 dsh 插件出问题，先定位故障层，再对症：**解析层**（node_modules 里有没有/新不新）→ **组合层**（entry 树是否正确叠出）→ **加载层**（fiber 卡 PENDING/FAILED）→ **缓存层**（代码改了没生效）。`dsh --profile web --dump-config` 一条命令排掉前两层，值得作为第一反应。
