@@ -1,7 +1,21 @@
-.DS_Store
-.idea/
+# --- 依赖 / 构建产物 ---
 node_modules/
 .pnpm-store/
-*.log
 out/
+*.log
+
+# --- 编辑器 / 系统 ---
+.DS_Store
+.idea/
 .zcodeignore
+
+# --- Agent 工具运行时状态（会话级，不随仓库共享） ---
+.mimosa/
+.pi/
+.remember/
+.zcode/
+
+# --- 本地临时分析工作区（脚本、抽取的文档、图表、缓存） ---
+analysis_workspace/
+__pycache__/
+*.pyc
