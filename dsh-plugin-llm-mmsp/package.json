@@ -1,0 +1,48 @@
+{
+  "name": "@zhuyeqi/dsh-plugin-llm-mmsp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Native MMSP (Model Message Stream Protocol) LLM adapter for DeepSeek Harness: talk to MMSP servers directly, no OpenAI bridge needed",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "locale/*.json",
+    "icon.svg",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-api-remotes"
+      ],
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "scripts": {
+    "bundle": "rm -rf lib && tsdown"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-launch-environment": "^0.2.1-rc.5",
+    "@deepseek-ai/dsh-llm": "^0.2.1-rc.5",
+    "@deepseek-ai/dsh-timeout": "^0.2.1-rc.5",
+    "@deepseek-ai/dsh-util-values": "^0.2.1-rc.5",
+    "@deepseek-ai/schemastery": "^3.18.5",
+    "tsdown": "^0.22.14"
+  }
+}

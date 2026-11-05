@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MMSP Model Adapter",
+    "description": "Speaks MMSP (Model Message Stream Protocol) natively: streams chat, thinking, and tool calls from any MMSP server endpoint, configurable from the Models page."
+  }
+}

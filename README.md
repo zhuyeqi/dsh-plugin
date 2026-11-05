@@ -28,6 +28,16 @@ dsh plugin --profile web add ./dsh-plugin-quote-cn
 
 详见 [dsh-plugin-water-reminder/README.md](./dsh-plugin-water-reminder/README.md)。
 
+### dsh-plugin-llm-mmsp
+
+MMSP（Model Message Stream Protocol）**原生 LLM 适配器**：实现一个 MMSP `LlmAdapter` 并 `registerAdapter` 注册，让 DSH 的会话/子代理/工具调用/thinking 直接跑在 MMSP 服务器上（`POST {base}/stream` + SSE UniEvent），不再需要 `mmsp-bridge` 这类本地 OpenAI 兼容代理。
+
+- 自带 `penguin-go` 路由预配置（`baseURL: https://go.penguin.ooo/api/v1`），凭据用 `MMSP_API_KEY`；模型设置页可改 provider/模型列表，无需重启。
+- 协议映射按 mmsp-bridge 实测行为移植：system → `config.system_prompt`、role `tool` → `tool_result.done`、工具 id 越界自动重映射、`finish_reason` 在工具调用后纠偏为 `tool-calls`、keep-alive 注释喂空闲看门狗、错误码统一归一。
+- 依赖（`@deepseek-ai/*`）经 tsdown 全部打进 `lib/index.js`，`node_modules/` 不入库。
+
+安装方式同上（`add ./dsh-plugin-llm-mmsp`，目录形式 → `link:` 软链）。详见 [dsh-plugin-llm-mmsp/README.md](./dsh-plugin-llm-mmsp/README.md)。
+
 ## 故障排查
 
 dsh 插件出问题，先定位故障层，再对症：**解析层**（node_modules 里有没有/新不新）→ **组合层**（entry 树是否正确叠出）→ **加载层**（fiber 卡 PENDING/FAILED）→ **缓存层**（代码改了没生效）。`dsh --profile web --dump-config` 一条命令排掉前两层，值得作为第一反应。

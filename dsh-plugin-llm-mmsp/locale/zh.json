@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MMSP 模型适配器",
+    "description": "原生支持 MMSP(Model Message Stream Protocol)协议:直连任意 MMSP 服务器端点,流式对话、思考与工具调用,可在模型设置页配置。"
+  }
+}
