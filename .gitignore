@@ -19,3 +19,7 @@ out/
 analysis_workspace/
 __pycache__/
 *.pyc
+
+# --- 与插件无关的本地文件 ---
+birthday-for-qianwen.zip
+birthday-gift/
