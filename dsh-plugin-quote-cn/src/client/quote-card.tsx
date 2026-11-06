@@ -132,11 +132,14 @@ export function KLineCard({ block }: ToolViewProps) {
 }
 
 function isSettled(block: ToolBlock): boolean {
-  return block.kind === 'tool-result';
+  // DSH 0.2.x result blocks carry `kind: 'tool-result'`; presentation `meta`
+  // only exists on a settled call, so accept either signal — the card keeps
+  // working across client-side contract drift.
+  return block?.kind === 'tool-result' || block?.meta != null;
 }
 
 function errorText(block: ToolBlock): string {
-  const text = block.content?.find((item) => item.type === 'text')?.text;
+  const text = block?.content?.find((item) => item.type === 'text')?.text;
   return text || '查询失败';
 }
 

@@ -12,7 +12,8 @@ const NS = 'quote-cn';
 interface QuoteClientContext {
   effect(callback: () => unknown, label?: string): void;
   locale: {
-    register(namespace: string, dicts: { zh: Record<string, string>; en: Record<string, string> }): unknown;
+    /** DSH 0.2.x: dictionaries register per locale id (was `{ zh, en }` map). */
+    register(namespace: string, locale: string, dict: Record<string, string>): unknown;
     bind(namespace: string): (key: string) => string;
   };
   slots: {
@@ -25,7 +26,14 @@ export const name = 'quote-cn';
 export const inject = ['slots', 'locale'];
 
 export function apply(ctx: QuoteClientContext) {
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'quote-cn: dictionaries');
+  ctx.effect(() => {
+    const disposeZh = ctx.locale.register(NS, 'zh', zh);
+    const disposeEn = ctx.locale.register(NS, 'en', en);
+    return () => {
+      disposeZh();
+      disposeEn();
+    };
+  }, 'quote-cn: dictionaries');
   const t = ctx.locale.bind(NS);
 
   ctx.slots.inject('settings.section', () => ctx.slots.register({

@@ -1,6 +1,9 @@
-import { defineTool } from '@deepseek-ai/dsh-tools';
 import type { Context } from '@deepseek-ai/cordis';
+import { argsRecord, type ToolSpec } from './index';
 import type { QuoteCn } from '../service/quote-cn-service';
+
+const PERIODS = ['day', 'week', 'month', '5', '15', '30', '60'] as const;
+const ADJUSTS = ['qfq', 'hfq', 'none'] as const;
 
 export function registerQuoteKlineTool(ctx: Context, service: QuoteCn) {
   ctx.systemPrompt.section({
@@ -11,63 +14,79 @@ export function registerQuoteKlineTool(ctx: Context, service: QuoteCn) {
 Supports daily/weekly/monthly and minute-level (5/15/30/60min).`,
   });
 
-  ctx.tools.register(defineTool({
+  const definition: ToolSpec = {
     name: 'quote_kline',
     description: 'Get OHLCV (open, high, low, close, volume) history for an A-share stock. Returns up to 500 bars.',
     parameters: {
-      code:   { type: 'string', required: true, description: 'Stock code with prefix, e.g. "sh600000"' },
-      period: { type: 'string', default: 'day', description: 'day | week | month | 5 | 15 | 30 | 60 (分钟)' },
-      count:  { type: 'number', default: 60, description: '返回 K 线根数,最大 500' },
-      adjust: { type: 'string', default: 'qfq', description: 'qfq (前复权) | hfq (后复权) | none (不复权)' },
+      type: 'object',
+      properties: {
+        code: { type: 'string', description: 'Stock code with prefix, e.g. "sh600000"' },
+        period: { type: 'string', description: 'day | week | month | 5 | 15 | 30 | 60 (分钟)' },
+        count: { type: 'number', description: '返回 K 线根数,最大 500' },
+        adjust: { type: 'string', description: 'qfq (前复权) | hfq (后复权) | none (不复权)' },
+      },
+      required: ['code'],
     },
     output: {
       schema: {
         type: 'object',
         additionalProperties: false,
         properties: {
-          code:   { type: 'string', required: true },
-          period: { type: 'string', required: true },
+          code: { type: 'string' },
+          period: { type: 'string' },
           bars: {
             type: 'array',
-            required: true,
             items: {
               type: 'object',
               additionalProperties: false,
               properties: {
-                ts:       { type: 'string', required: true },
-                open:     { type: 'number', required: true },
-                high:     { type: 'number', required: true },
-                low:      { type: 'number', required: true },
-                close:    { type: 'number', required: true },
-                volume:   { type: 'number', required: true },
+                ts: { type: 'string' },
+                open: { type: 'number' },
+                high: { type: 'number' },
+                low: { type: 'number' },
+                close: { type: 'number' },
+                volume: { type: 'number' },
                 turnover: { type: 'number' },
               },
+              required: ['ts', 'open', 'high', 'low', 'close', 'volume'],
             },
           },
         },
+        required: ['code', 'period', 'bars'],
       },
-      render: (_args: unknown, value: { code: string; period: string; bars: Array<{ close: number }> }) => [{
+      render: (_args, value) => [{
         type: 'text',
-        text:
-`${value.code} ${value.period} ${value.bars.length} bars. ` +
-`Last close: ¥${value.bars[value.bars.length - 1]?.close.toFixed(2)}`,
+        text: (() => {
+          const { code, period, bars } = value as { code: string; period: string; bars: Array<{ close: number }> };
+          return `${code} ${period} ${bars.length} bars. ` +
+            `Last close: ¥${bars[bars.length - 1]?.close.toFixed(2)}`;
+        })(),
       }],
       presentationMeta: (_args, value) => value,
     },
     isConcurrencySafe: () => true,
-    async execute(args: { code: string; period: string; count: number; adjust: string }) {
-      return service.kline(args.code, {
-        period: args.period,
-        count: args.count,
-        adjust: args.adjust,
-      });
+    async execute(args) {
+      const record = argsRecord(args);
+      const code = typeof record.code === 'string' ? record.code : '';
+      const period = typeof record.period === 'string' && (PERIODS as readonly string[]).includes(record.period)
+        ? record.period : 'day';
+      const adjust = typeof record.adjust === 'string' && (ADJUSTS as readonly string[]).includes(record.adjust)
+        ? record.adjust : 'qfq';
+      const countRaw = Number(record.count);
+      const count = Number.isFinite(countRaw) && countRaw > 0 ? Math.min(Math.trunc(countRaw), 500) : 60;
+      return service.kline(code, { period, count, adjust });
     },
-    presentCall: (args: { code: string; period: string }) => ({
-      card: 'generic' as const,
-      kind: 'fetch' as const,
-      title: `K线 ${args.code} ${args.period ?? 'day'}`,
-    }),
-    presentResult: (_args: unknown, result: { isError: boolean }) =>
+    presentCall: (args) => {
+      const record = argsRecord(args);
+      return {
+        card: 'generic' as const,
+        kind: 'fetch' as const,
+        title: `K线 ${record.code ?? ''} ${typeof record.period === 'string' ? record.period : 'day'}`,
+      };
+    },
+    presentResult: (_args, result) =>
       result.isError ? undefined : ({ card: 'generic' as const, title: 'K 线' }),
-  }));
+  };
+
+  ctx.tools.register(definition);
 }

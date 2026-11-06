@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "A股行情",
+    "description": "设置页 A 股自选列表，并提供 quote_get / quote_search / quote_kline 行情工具。"
+  }
+}

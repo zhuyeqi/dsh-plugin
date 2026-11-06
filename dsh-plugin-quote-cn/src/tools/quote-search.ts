@@ -1,5 +1,5 @@
-import { defineTool } from '@deepseek-ai/dsh-tools';
 import type { Context } from '@deepseek-ai/cordis';
+import { argsRecord, type ToolSpec } from './index';
 import type { QuoteCn } from '../service/quote-cn-service';
 
 export function registerQuoteSearchTool(ctx: Context, service: QuoteCn) {
@@ -11,12 +11,16 @@ export function registerQuoteSearchTool(ctx: Context, service: QuoteCn) {
 Returns up to 10 matches; pair with quote_get for full quote.`,
   });
 
-  ctx.tools.register(defineTool({
+  const definition: ToolSpec = {
     name: 'quote_search',
     description: 'Search A-share stocks by Chinese name or 6-digit code. Returns up to 10 matches.',
     parameters: {
-      query:  { type: 'string', required: true, description: '搜索关键词 (中文名或部分代码)' },
-      market: { type: 'string', description: '市场过滤: sh / sz / bj, 不传则全部' },
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '搜索关键词 (中文名或部分代码)' },
+        market: { type: 'string', description: '市场过滤: sh / sz / bj, 不传则全部' },
+      },
+      required: ['query'],
     },
     output: {
       schema: {
@@ -25,30 +29,36 @@ Returns up to 10 matches; pair with quote_get for full quote.`,
           type: 'object',
           additionalProperties: false,
           properties: {
-            code: { type: 'string', required: true },
-            name: { type: 'string', required: true },
+            code: { type: 'string' },
+            name: { type: 'string' },
             type: { type: 'string' },
           },
+          required: ['code', 'name'],
         },
       },
-      render: (_args: unknown, value: Array<{ code: string; name: string }>) => [{
+      render: (_args, value) => [{
         type: 'text',
-        text: value.length === 0
+        text: (value as Array<{ code: string; name: string }>).length === 0
           ? 'No matching stocks found.'
-          : value.map((v) => `${v.code} ${v.name}`).join('\n'),
+          : (value as Array<{ code: string; name: string }>).map((v) => `${v.code} ${v.name}`).join('\n'),
       }],
       presentationMeta: (_args, value) => ({ matches: value }),
     },
     isConcurrencySafe: () => true,
-    async execute(args: { query: string; market?: string }) {
-      return service.search(args.query, args.market);
+    async execute(args) {
+      const record = argsRecord(args);
+      const query = typeof record.query === 'string' ? record.query : '';
+      const market = typeof record.market === 'string' ? record.market : undefined;
+      return service.search(query, market);
     },
-    presentCall: (args: { query: string }) => ({
+    presentCall: (args) => ({
       card: 'generic' as const,
       kind: 'search' as const,
-      title: `搜股 ${args.query}`,
+      title: `搜股 ${argsRecord(args).query ?? ''}`,
     }),
-    presentResult: (_args: unknown, result: { isError: boolean }) =>
+    presentResult: (_args, result) =>
       result.isError ? undefined : ({ card: 'generic' as const, title: '股票搜索' }),
-  }));
+  };
+
+  ctx.tools.register(definition);
 }

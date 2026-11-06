@@ -1064,10 +1064,10 @@ window.__ModuleLoader__.load({
 			}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Sparkline, { bars: bars.slice(-30) })] });
 		}
 		function isSettled(block) {
-			return block.kind === "tool-result";
+			return block?.kind === "tool-result" || block?.meta != null;
 		}
 		function errorText(block) {
-			return block.content?.find((item) => item.type === "text")?.text || "查询失败";
+			return block?.content?.find((item) => item.type === "text")?.text || "查询失败";
 		}
 		function Card({ children }) {
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
@@ -1212,10 +1212,14 @@ window.__ModuleLoader__.load({
 		const name = "quote-cn";
 		const inject = ["slots", "locale"];
 		function apply(ctx) {
-			ctx.effect(() => ctx.locale.register(NS, {
-				zh,
-				en
-			}), "quote-cn: dictionaries");
+			ctx.effect(() => {
+				const disposeZh = ctx.locale.register(NS, "zh", zh);
+				const disposeEn = ctx.locale.register(NS, "en", en);
+				return () => {
+					disposeZh();
+					disposeEn();
+				};
+			}, "quote-cn: dictionaries");
 			const t = ctx.locale.bind(NS);
 			ctx.slots.inject("settings.section", () => ctx.slots.register({
 				name: "settings.section",

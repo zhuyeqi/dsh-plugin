@@ -29,8 +29,10 @@ export const Config = z.object({
 export function apply(ctx: Context, config: QuoteCnConfig) {
   const service = createQuoteCnService(config);
 
+  // DSH 0.2.x: `ctx.timer.setInterval` is the deprecated alias; the current
+  // disposable helper is `ctx.timer.interval(callback, delay)`.
   ctx.effect(
-    () => ctx.timer.setInterval(() => { void service.poll(); }, config.pollIntervalMs),
+    () => ctx.timer.interval(() => { void service.poll(); }, config.pollIntervalMs),
     'quote-cn: poll',
   );
 

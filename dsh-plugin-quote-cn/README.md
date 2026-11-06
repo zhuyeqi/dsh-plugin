@@ -21,26 +21,25 @@ A 股行情插件：设置页「行情」自选列表 + 模型可调用的 `quot
 cd dsh-plugin-quote-cn
 pnpm install
 pnpm run bundle
-
-# 装进 web profile（目录形式 → link: 软链本仓库；会写入 dsh.profile.bundles，bundle 自带 cordis.patch.yml）
-dsh plugin --profile web add .
-
-# 重启 web
-dsh web
 ```
 
-不要把 `cordis.patch.yml` 再抄进 `~/.dsh/profiles/web/cordis.patch.yml`。bundle 层已经注入 `quote-cn` 这一行；再抄一遍会重复 id。
+装进 profile 用 Harness 的插件管理（Web GUI 插件页或 `plugin_manager install_bundle`），
+target 传本目录的绝对路径；会写入 profile 的 `dsh.profile.bundles` 并 `link:` 本仓库，
+改码重新 `pnpm run bundle` 后重启应用即生效。
+
+> 2026-11 兼容性说明：本插件已适配 DSH 0.2.x——`lib/index.js` 零外部运行时依赖
+> （schemastery 已内联，工具定义改为直接注册 raw JSON Schema，不再 import dsh-tools）；
+> 客户端 `dsh.client` 声明补了 `immediately: true` 并修正了 inject 列表；
+> locale 字典改为按 locale 逐个注册；timer 用 `ctx.timer.interval`；
+> 新增插件元信息（`locale/*.json` 的 meta 标题/描述）与 `icon.svg`。
+
+不要把 `cordis.patch.yml` 再抄进 profile 的 `cordis.patch.yml`。bundle 层已经注入 `quote-cn` 这一行；再抄一遍会重复 id。
 
 ### `link:` 与 `file:`：装目录，别装快照
 
-`dsh plugin add .`（目录形式）生成 `link:` 软链——profile 的 `node_modules/@zhuyeqi/dsh-plugin-quote-cn` 直指本仓库，改码重新打包后**无需重装**，重启即生效（官方教程的分发方式）。
+目录形式安装生成 `link:` 软链——profile 的 `node_modules/@zhuyeqi/dsh-plugin-quote-cn` 直指本仓库，改码重新打包后**无需重装**，重启即生效。
 
-不要用 `file:$(pwd)`：那是把当前构建产物打包**拷贝**进 profile 的快照，不跟随源码。快照不刷新的典型症状：改包名 scope（如 `@your-org` → `@zhuyeqi`）或重新 bundle 后，旧拷贝的 `cordis.patch.yml` 仍按旧包名插 loader entry，启动报 `Cannot find package '@your-org/...'`、或干脆一直跑旧版本。若 profile 已按 `file:` 装过，切到 `link:`：
-
-```bash
-rm -rf ~/.dsh/profiles/web/node_modules/@zhuyeqi
-dsh plugin --profile web add /Users/kk/Projects/deepseek-harness/dsh-plugin-quote-cn
-```
+不要用 `file:$(pwd)`：那是把当前构建产物打包**拷贝**进 profile 的快照，不跟随源码，容易出现一直跑旧版本的问题。
 
 ## 开发
 
@@ -48,7 +47,7 @@ dsh plugin --profile web add /Users/kk/Projects/deepseek-harness/dsh-plugin-quot
 pnpm run watch    # tsdown --watch：改 src/ 即重写 lib/
 ```
 
-profile 已 `link:` 本目录，所以开发闭环是：改 `src/` → watch 自动重写 `lib/` → 重启 `dsh web`。没有 bundle、没有 add、没有 profile 重装。
+profile 已 `link:` 本目录，所以开发闭环是：改 `src/` → watch 自动重写 `lib/` → 重启 DeepSeek Harness 应用。没有 bundle、没有 add、没有 profile 重装。
 
 `link:` 的取舍：profile 永远运行本仓库的当前状态——`lib/` 被改坏的半途重启，行情面板会挂，修好再重启即可。
 

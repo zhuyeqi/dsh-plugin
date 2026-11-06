@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "CN Market Quotes",
+    "description": "A-share watchlist in Settings plus quote_get, quote_search, and quote_kline tools for the model."
+  }
+}

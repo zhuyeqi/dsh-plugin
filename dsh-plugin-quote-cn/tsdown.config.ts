@@ -12,11 +12,16 @@ export default defineConfig([
     dts: false,
     clean: false,
     deps: {
+      // Runtime-external packages must resolve where the bundle runs. The
+      // plugin is linked into the DSH profile from this checkout, so Node
+      // resolves its imports along THIS directory tree — not the profile's.
+      // cordis / dsh-system-prompt appear only in erased `import type` rows,
+      // so they are never imported at runtime. schemastery, however, is a
+      // real runtime import: keep it OUT of neverBundle so tsdown inlines it
+      // and lib/index.js ends up with zero external imports.
       neverBundle: [
         '@deepseek-ai/cordis',
-        '@deepseek-ai/dsh-tools',
         '@deepseek-ai/dsh-system-prompt',
-        '@deepseek-ai/schemastery',
       ],
     },
     outputOptions: {
