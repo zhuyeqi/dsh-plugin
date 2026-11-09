@@ -38,6 +38,17 @@ MMSP（Model Message Stream Protocol）**原生 LLM 适配器**：实现一个 M
 
 安装方式同上（`add ./dsh-plugin-llm-mmsp`，目录形式 → `link:` 软链）。详见 [dsh-plugin-llm-mmsp/README.md](./dsh-plugin-llm-mmsp/README.md)。
 
+### dsh-plugin-key-guard
+
+密钥安全插件：挂在 `llm/stream` waterfall 上包裹**每一次模型调用**——出站请求中的 AI/大模型 Key 自动替换为 `<<DSHKEY#n>>` 占位符，模型返回使用时（正文/思考/工具参数，含被流式 delta 拆开的）在本地还原为真实密钥，**真实 Key 永远不会到达模型服务商**。
+
+- 内置 10 类常见格式（`sk-`/`sk-ant-`/`AKIA`/`AIza`/GitHub/Slack/GitLab/HF/Replicate），零配置开箱即用；设置页可追加自定义正则与精确密钥（secret 语义，保存后不回显），全部免重启热生效。
+- DSH 深冻结请求对象，插件用"脱敏副本重入 `llm.stream()`"绕过（无递归，其余中间件照常参与新流）；只还原本次请求出现过的编号，注入指令猜 id 套不出没见过的 key。
+- 系统提示自动注入占位符说明，模型直接原样引用占位符即可，不会停下来追问密钥内容。
+- `redact` 模式可切换为永久遮蔽（`<<REDACTED>>`，永不还原）。
+
+安装方式同上（`add ./dsh-plugin-key-guard`）。详见 [dsh-plugin-key-guard/README.md](./dsh-plugin-key-guard/README.md)。
+
 ## 故障排查
 
 dsh 插件出问题，先定位故障层，再对症：**解析层**（node_modules 里有没有/新不新）→ **组合层**（entry 树是否正确叠出）→ **加载层**（fiber 卡 PENDING/FAILED）→ **缓存层**（代码改了没生效）。`dsh --profile web --dump-config` 一条命令排掉前两层，值得作为第一反应。
