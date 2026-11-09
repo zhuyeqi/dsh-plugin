@@ -22,6 +22,8 @@
 
 import z from '@deepseek-ai/schemastery';
 import { createKeyGuard } from './engine.js';
+import { createEgressGuard } from './egress.js';
+import { installTranslatorGuard, installToolUrlGuard } from './boundaries.js';
 
 export const name = 'key-guard';
 
@@ -36,6 +38,14 @@ export const Config = z.object({
     .description('extra regex sources, case-insensitive (自定义正则，忽略大小写)'),
   exactKeys: z.array(z.string().role('secret')).default([]).volatile()
     .description('literal secrets always masked verbatim (精确密钥，写入后不回显)'),
+  guardEgress: z.boolean().default(true).volatile()
+    .description('mask keys in non-LLM HTTP bodies/URLs: MCP, web_fetch, telemetry (出口守卫：MCP/web_fetch/遥测)'),
+  guardTranslator: z.boolean().default(true).volatile()
+    .description('mask keys before CoT translation leaves the machine (思维链翻译脱敏)'),
+  guardToolUrls: z.boolean().default(true).volatile()
+    .description('refuse tool calls that put a key into a remote URL, e.g. web_fetch (工具 URL 守卫)'),
+  egressAllowHosts: z.array(z.string()).default([]).volatile()
+    .description('extra hosts exempt from the egress guard (豁免主机；环回地址始终豁免)'),
 });
 
 /** Read a volatile (or plain) config field's current value. */
@@ -57,6 +67,10 @@ export function apply(ctx, config) {
     mode: liveRead(config?.mode, 'placeholder') === 'redact' ? 'redact' : 'placeholder',
     patterns: liveRead(config?.patterns, []),
     exactKeys: liveRead(config?.exactKeys, []),
+    guardEgress: liveRead(config?.guardEgress, true) !== false,
+    guardTranslator: liveRead(config?.guardTranslator, true) !== false,
+    guardToolUrls: liveRead(config?.guardToolUrls, true) !== false,
+    egressAllowHosts: liveRead(config?.egressAllowHosts, []),
   });
 
   const guard = createKeyGuard({
@@ -74,6 +88,49 @@ export function apply(ctx, config) {
   // options object -> ids masked into it, surviving retries that reuse it
   const requestState = new WeakMap();
   let maskedRequests = 0;
+
+  // ---- boundaries that never reach `llm/stream` ----------------------------
+  //
+  // `llm/stream` covers every model call, but text also leaves through other
+  // services: CoT translation (Microsoft/Google), MCP servers, web_fetch and
+  // OTLP exporters. Both guards below are togglable live from Settings.
+
+  installTranslatorGuard(ctx, {
+    guard,
+    readRules,
+    onWarn: (message) => ctx.logger.warn(`key-guard: ${message}`),
+  });
+
+  // `allowHosts` is read at call time, so Settings edits apply without restart.
+  const egress = createEgressGuard({
+    guard,
+    allowHosts: () => {
+      const hosts = readRules().egressAllowHosts;
+      return Array.isArray(hosts) ? hosts : [];
+    },
+    enabled: () => readRules().enabled && readRules().guardEgress,
+    onWarn: (message) => ctx.logger.warn(`key-guard: ${message}`),
+  });
+
+  ctx.effect(() => {
+    let active = true;
+    void egress.install().then(() => {
+      if (!active) egress.uninstall();
+    });
+    return () => {
+      active = false;
+      egress.uninstall();
+    };
+  }, 'key-guard: egress guard');
+
+  // web_fetch bypasses the fetch patch (undici namespace is not patchable), so
+  // the only control left is refusing the call at the tool gate.
+  installToolUrlGuard(ctx, {
+    guard,
+    readRules,
+    isLocalOrExempt: (host) => egress.isLocalOrExempt(host),
+    onWarn: (message) => ctx.logger.warn(`key-guard: ${message}`),
+  });
 
   ctx.on(
     'llm/stream',

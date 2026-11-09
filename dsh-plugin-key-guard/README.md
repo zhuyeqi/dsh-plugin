@@ -42,6 +42,44 @@ DSH 会 deep-freeze 每个模型请求，因此脱敏走两条路径：
 - **redact 模式**：配置 `mode: redact` 时替换为固定 `<<REDACTED>>` 且永不还原（硬隐私
   模式，工具将拿到占位符）。
 
+## llm/stream 之外的出口（v0.4.0）
+
+`llm/stream` 只覆盖**模型调用**。本机还有若干路径会把文本送到远端，且完全不经过这条
+瀑布。实测确认的泄漏面与对应守卫：
+
+| 出口 | 目的地 | 守卫 |
+|---|---|---|
+| 思维链翻译 `cotTranslation` | `edge.microsoft.com` / `translate.googleapis.com` | `installTranslatorGuard` |
+| MCP（streamable-http / SDK） | `open.bigmodel.cn` 等 | 出口守卫 `globalThis.fetch` |
+| OTLP 遥测导出 | `harness-telemetry.deepseeksvc.com` | 出口守卫 `node:http(s)` |
+| `web_fetch` | 任意 URL（含环回/内网） | 工具 URL 守卫（拒绝） |
+
+三个守卫都可从设置页热开关：`guardEgress`、`guardTranslator`、`guardToolUrls`。
+
+**出口守卫**（`egress.js`）包裹 `globalThis.fetch` 与 `node:http`/`node:https`，对
+**请求体与 URL** 做脱敏。要点：
+
+- **不脱敏请求头**。`Authorization: Bearer <key>` 是所有服务商的鉴权方式，遮蔽它等于
+  让每次调用失败，而不是保护它。
+- **环回与内网地址始终豁免**。本地流程本就端到端携带真实密钥（设置页保存 key、本地
+  API 网关），遮蔽只会打断它们而不产生安全收益。
+- `syncBuiltinESMExports()` 是必需的：内置模块的 ESM 命名导出在首次求值时被快照，
+  仅改 CommonJS 对象对 `import('node:http')` 的消费者不可见——而 OTLP 导出器恰好
+  写的是 `const { request } = await import('http')`。
+
+**思维链翻译守卫**（`boundaries.js`）包裹 `ctx.translator.translate`：出站前把
+`spec.text` 中的密钥替换为占位符，译文返回后再本地还原，因此阅读面板仍显示真实值。
+附带效果是 Session 日志里记录的 `plugin:translator/request` 也变成占位符。
+
+**工具 URL 守卫**是唯一能做"拒绝"的地方，因为 `undici` 的 ESM 命名导出不可打补丁
+（对命名空间 `defineProperty` 会抛错，`syncBuiltinESMExports` 只管 Node 内置模块），
+而 `tools/pre-execute` 只能返回 allow/ask/deny、无法改写参数。范围刻意收窄：只检查
+`url`/`uri`/`endpoint` 一类字段、只针对远端非豁免主机、只在命中检测器时拒绝。bash、
+文件写入、本地端点均不受影响。
+
+**已知残余风险**：`web_fetch` 发出的请求体（`POST` 场景）若无 URL 字段则不在守卫范围；
+请求头中的密钥始终不脱敏。这两点是有意为之的取舍。
+
 ## 内置检测模式
 
 OpenAI/DeepSeek 等 `sk-`、Anthropic `sk-ant-`、AWS `AKIA…`、Google `AIza…`、

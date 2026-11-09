@@ -417,6 +417,8 @@ export function createKeyGuard(rawOptions = {}) {
     maskRequestClone,
     makeStreamRestorer,
     wrapStream,
+    /** Restore every placeholder in `text` that was masked into this egress. */
+    restoreAll,
     /** Diagnostics: masked key count and id->fingerprint map (never the keys). */
     stats() {
       const fingerprints = {};

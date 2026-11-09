@@ -12,6 +12,17 @@
 #   patterns:  extra regex sources (case-insensitive, global) to mask
 #   exactKeys: literal secrets always masked verbatim; declared role('secret')
 #              so the Settings form never echoes them back
+#
+# v0.4.0 egress coverage (dsh/stream only covers model calls):
+#   guardEgress:     mask keys in non-LLM HTTP bodies/URLs (MCP, web_fetch
+#                    transports, OTLP telemetry) by wrapping fetch + node:http(s)
+#   guardTranslator: mask keys in CoT translation text before it leaves the
+#                    machine (edge.microsoft.com / translate.googleapis.com)
+#   guardToolUrls:   refuse tool calls that put a key into a remote URL; the
+#                    only control available for web_fetch (undici is unpatchable)
+#   egressAllowHosts: extra hosts exempt from both guards; loopback and private
+#                    hosts are always exempt because local flows legitimately
+#                    carry real credentials end-to-end
 
 - insert:
     - id: key-guard
@@ -21,3 +32,7 @@
         mode: placeholder
         patterns: []
         exactKeys: []
+        guardEgress: true
+        guardTranslator: true
+        guardToolUrls: true
+        egressAllowHosts: []
