@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Key guard",
+    "description": "Masks AI/LLM API keys before any model request leaves this machine and restores the placeholders when the model uses them, so real credentials never reach a provider."
+  }
+}

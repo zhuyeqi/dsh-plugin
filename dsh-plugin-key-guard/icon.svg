@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Key guard">
+  <!-- Shield body -->
+  <path d="M32 4 L54 12 V30 C54 45.2 44.9 55.6 32 60 C19.1 55.6 10 45.2 10 30 V12 Z"
+        fill="#0f7b6c" stroke="#0a5d52" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M32 9 L49 15.4 V30 C49 42.3 41.7 50.9 32 54.7 C22.3 50.9 15 42.3 15 30 V15.4 Z"
+        fill="#12897a" opacity="0.55"/>
+  <!-- Key ring -->
+  <circle cx="26.5" cy="28" r="6.5" fill="none" stroke="#ffffff" stroke-width="3.4"/>
+  <!-- Key shaft -->
+  <path d="M31.5 32.5 L43 44" stroke="#ffffff" stroke-width="3.4" stroke-linecap="round"/>
+  <!-- Key teeth -->
+  <path d="M38.5 39.5 L35 43" stroke="#ffffff" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="M42 43 L38.5 46.5" stroke="#ffffff" stroke-width="3.4" stroke-linecap="round"/>
+  <!-- Mask dots: secrets become dots before leaving -->
+  <g fill="#ffd166" stroke="#0a5d52" stroke-width="0.8">
+    <circle cx="44" cy="18" r="2.1"/>
+    <circle cx="49.5" cy="22.5" r="1.7"/>
+    <circle cx="41" cy="24.5" r="1.4"/>
+  </g>
+</svg>

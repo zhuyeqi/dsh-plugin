@@ -1,0 +1,23 @@
+# dsh-plugin-key-guard cordis.patch.yml
+#
+# One host row under this bundle. The plugin exports `apply` + a volatile
+# `Config`, so the Settings page renders an editable form for every field
+# below and edits land live (no restart).
+#
+# These values are the BASE layer; the Settings page writes the user layer on
+# top. Fields:
+#   enabled:   master switch (volatile, immediate)
+#   mode:      'placeholder' (default) restores masked keys from model replies;
+#              'redact' replaces them with <<REDACTED>> and never restores
+#   patterns:  extra regex sources (case-insensitive, global) to mask
+#   exactKeys: literal secrets always masked verbatim; declared role('secret')
+#              so the Settings form never echoes them back
+
+- insert:
+    - id: key-guard
+      name: '@zhuyeqi/dsh-plugin-key-guard'
+      config:
+        enabled: true
+        mode: placeholder
+        patterns: []
+        exactKeys: []
