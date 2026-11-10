@@ -114,9 +114,15 @@ export function apply(ctx, config) {
 
   ctx.effect(() => {
     let active = true;
-    void egress.install().then(() => {
-      if (!active) egress.uninstall();
-    });
+    void egress.install()
+      .then(() => {
+        if (!active) egress.uninstall();
+      })
+      .catch((error) => {
+        // install() mostly contains its own failures, but anything that does
+        // escape must not become an unhandled rejection with no trace.
+        ctx.logger.warn(`key-guard: egress guard install failed: ${String(error)}`);
+      });
     return () => {
       active = false;
       egress.uninstall();
@@ -132,13 +138,18 @@ export function apply(ctx, config) {
     onWarn: (message) => ctx.logger.warn(`key-guard: ${message}`),
   });
 
-  // Registered with `prepend` so key-guard is the OUTERMOST listener: the
-  // frozen-request re-entry (llm.stream below) re-runs the waterfall, and
-  // every listener positioned above key-guard would otherwise run twice per
-  // masked request — session checkpointing (a disk flush) and title
-  // bookkeeping included. Outermost, the outer pass stops here and the
-  // re-entered pass runs everything exactly once. Downstream listeners then
-  // observe masked options, which is also the privacy-safer side to err on.
+  // Registered with plain `push` ordering (v0.5.0 briefly used `prepend`, now
+  // reverted). `prepend` made key-guard outermost only by racing the other
+  // `prepend: true` listener — dsh-session-title prepends too, and the loader
+  // creates entries concurrently, so the real order was decided by module
+  // load timing. When key-guard won that race, its outer pass stopped without
+  // calling next(), and the re-entered clone is not a loop-marked request, so
+  // dsh-session-title's `isAgentLoopRequest` guard skipped it entirely: title
+  // bookkeeping for masked sessions silently stopped. The claimed benefit
+  // ("title bookkeeping ran twice") never applied, because that same guard
+  // already made re-entry a no-op. The remaining cost of non-prepend ordering
+  // is that session checkpointing flushes once per pass — an idempotent
+  // durability check — which is the safer trade.
   ctx.on(
     'llm/stream',
     (options, next) => {
@@ -171,9 +182,13 @@ export function apply(ctx, config) {
       ctx.logger.info(
         `key-guard: masked ${clone.usedIds.size} key(s) into ${route} (re-entry); placeholders in the reply will be restored locally`,
       );
+      // NOTE: re-entering through llm.stream() re-runs adapter prepareCall and
+      // cannot reuse the caller's one-shot `preparedCall` handle (it is not
+      // exposed to plugins). That is a known, documented contract deviation —
+      // see README "已知残余风险".
       return guard.wrapStream(llm.stream(clone.options), clone.usedIds);
     },
-    { global: true, prepend: true },
+    { global: true },
   );
 
   ctx.effect(() => () => {

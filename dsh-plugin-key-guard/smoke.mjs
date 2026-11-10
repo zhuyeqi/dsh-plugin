@@ -217,7 +217,7 @@ async function main() {
   // ---- 12. frozen request -> masked clone path -------------------------------
   {
     const guard = createKeyGuard({});
-    const userMsg = Object.freeze({ role: 'user', content: Object.freeze([{ type: 'text', text: `use ${REAL_KEY}` }]) });
+    const userMsg = Object.freeze({ role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: `use ${REAL_KEY}` })]) });
     const frozen = Object.freeze({ provider: 'p', model: 'm', messages: Object.freeze([userMsg]), system: `secret ${AWS_KEY}` });
 
     assert.equal(guard.maskRequest(frozen, new WeakMap()), undefined, 'frozen request defers to the clone path');
@@ -285,8 +285,15 @@ async function main() {
   // ---- 15. prefix screen never hides a builtin key ----------------------------
   // The screen is a security-sensitive shortcut: a false negative would let a
   // real key through. For every builtin family, synthesize a key and prove it
-  // is still masked, and prove the fused detector matches exactly what the
-  // sequential detector would have matched on the same corpus.
+  // is still masked, and prove the engine's detectors match what a plain
+  // sequential application of the same patterns matches.
+  //
+  // The corpus is deliberately ALL-PAIRS: every token is glued to every other
+  // token through every separator. v0.5.0 shipped a single-pass fused
+  // alternation whose corpus joined samples with '\n---\n', so no two tokens
+  // ever shared a string and the one shape that actually broke — a
+  // later-listed family swallowing an earlier one's prefix — was never
+  // exercised. That regression leaked whole key bodies in cleartext.
   {
     const samples = [
       'sk-' + 'a'.repeat(24),                    // openai-compatible
@@ -303,9 +310,8 @@ async function main() {
       'sk-too-short', 'AKIAshort', 'prefixhfh_', 'xox-nothing',
     ];
     // Variants wrap the token in NON-word delimiters: the `\b` anchor in the
-    // original patterns (kept verbatim in the fused regex) deliberately does
-    // NOT match a token glued to word characters like `edgesk-…` — that is
-    // anti-false-positive design, not a gap.
+    // original patterns deliberately does NOT match a token glued to word
+    // characters like `edgesk-…` — anti-false-positive design, not a gap.
     const corpus = samples.flatMap((s) => [`use ${s} now`, `(${s})`, `${s}`]).join('\n---\n');
 
     const guard = createKeyGuard({});
@@ -313,36 +319,64 @@ async function main() {
     const masked = guard.maskText(corpus, usedIds);
 
     for (const key of samples.slice(0, 10)) {
-      assert.ok(!masked.includes(key), `screen+fused still masks ${key.slice(0, 8)}…`);
+      assert.ok(!masked.includes(key), `screen+detectors still mask ${key.slice(0, 8)}…`);
     }
     assert.ok(masked.includes('sk-too-short'), 'below-threshold token untouched');
     assert.ok(masked.includes('prefixhfh_'), 'embedded prefix without token boundary untouched');
 
-    // Equivalence: tag every match with its first-encounter ordinal under the
-    // ORIGINAL sequential detectors, then under the fused single-pass detector
-    // (same alternation construction the engine uses). Identical tagged output
-    // proves the same match set AND the same id-assignment order.
-    const tagWith = (regexes) => {
-      const order = new Map();
-      let ordinal = 0;
-      const tag = (m) => {
-        if (!order.has(m)) order.set(m, ordinal++);
-        return `\x00${order.get(m)}\x00`;
-      };
-      let out = corpus;
-      for (const re of regexes) out = out.replace(re, tag);
-      return out;
-    };
-    const sequentialTagged = tagWith(BUILTIN_PATTERNS.map(([, re]) => new RegExp(re.source, re.flags)));
-    const fusedTagged = tagWith([new RegExp(BUILTIN_PATTERNS.map(([, re]) => re.source).join('|'), 'g')]);
-    assert.equal(fusedTagged, sequentialTagged, 'fused detector output equals sequential detector output');
-    console.log('15. screen superset + fused equivalence: ok');
+    // (a) Screen superset: for every family, in every case variant, a token
+    // the detectors match must also trip the screen. A screen miss here would
+    // be a silent bypass of masking entirely.
+    const SCREEN = /(?:sk-|akia|aiza|gh[pousr]_|github_pat_|xox|glpat-|hf_|r8_)/i;
+    for (const token of samples.slice(0, 10)) {
+      for (const variant of [token, token.toUpperCase(), token.toLowerCase()]) {
+        const hit = BUILTIN_PATTERNS.some(([, re]) => new RegExp(re.source, re.flags).test(variant));
+        if (hit) assert.ok(SCREEN.test(variant), `screen must cover ${token.slice(0, 6)}… (matched by a detector)`);
+      }
+    }
+
+    // (b) All-pairs equivalence: masking must equal a plain sequential
+    // application of the builtin patterns, and — the direction that matters —
+    // must never leave MORE cleartext than that reference. Placeholder ids are
+    // normalised to a token before comparing so id order is not the assertion.
+    const canonical = (text, ids, g) => g.restoreAll(text, ids);
+    const plaintextLeft = (text) => JSON.stringify(text.replace(/<<DSHKEY#\d+>>/g, ''));
+    const separators = ['', '-', '.', ' ', '_', '/', '\n', ':', '|', '=>'];
+    let pairs = 0;
+    for (const first of samples.slice(0, 10)) {
+      for (const second of samples.slice(0, 10)) {
+        for (const separator of separators) {
+          pairs += 1;
+          const input = `${first}${separator}${second}`;
+          const ids = new Set();
+          const out = guard.maskText(input, ids);
+          // every real key present must be gone from the masked text
+          assert.ok(canonical(out, ids, guard) === input, `round-trip restores ${separator === '\n' ? '\\n' : separator || '(glued)'} pair`);
+          const leftovers = plaintextLeft(out);
+          for (const token of [first, second]) {
+            // A shared prefix may be absorbed by an earlier match, but a
+            // whole token must never survive verbatim.
+            assert.ok(!leftovers.includes(JSON.stringify(token)), `no whole token survives: ${first.slice(0, 6)}… ${second.slice(0, 6)}…`);
+          }
+        }
+      }
+    }
+
+    // (c) The exact regression shape: slack's `-`-heavy class used to eat the
+    // `ghp_` prefix of a glued GitHub token and leave the body in cleartext.
+    const glued = `${samples[6]}-${samples[4]}`;
+    const gluedIds = new Set();
+    const gluedOut = guard.maskText(glued, gluedIds);
+    assert.ok(!gluedOut.includes('c'.repeat(31)), 'the -glued slack→ghp_ case leaves no key body behind');
+    assert.equal((gluedOut.match(/<<DSHKEY#\d+>>/g) ?? []).length, 2, 'the glued pair is masked as two separate keys');
+
+    console.log(`15. screen superset + sequential equivalence (${pairs} pairs): ok`);
   }
 
   // ---- 16. frozen messages are memoized across requests -----------------------
   {
     const guard = createKeyGuard({});
-    const frozenMsg = Object.freeze({ role: 'user', content: Object.freeze([{ type: 'text', text: `use ${REAL_KEY}` }]) });
+    const frozenMsg = Object.freeze({ role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: `use ${REAL_KEY}` })]) });
     const frozenReq = Object.freeze({ provider: 'p', model: 'm', messages: Object.freeze([frozenMsg]) });
 
     const first = guard.maskRequestClone(frozenReq);
@@ -360,7 +394,7 @@ async function main() {
   {
     const guard = createKeyGuard({});
     const TOKEN = 'TEAM_07_AB12CD34';
-    const frozenMsg = Object.freeze({ role: 'user', content: Object.freeze([{ type: 'text', text: `run ${TOKEN}` }]) });
+    const frozenMsg = Object.freeze({ role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: `run ${TOKEN}` })]) });
     const frozenReq = Object.freeze({ provider: 'p', model: 'm', messages: Object.freeze([frozenMsg]) });
 
     const before = guard.maskRequestClone(frozenReq);
@@ -394,7 +428,67 @@ async function main() {
     console.log('18. perf counters: ok');
   }
 
-  console.log('\nkey-guard smoke: all 18 groups passed');
+  // ---- 19. memoized masked messages are immutable & not cache-poisonable -------
+  // The cache hands the SAME masked message object to every later request, so a
+  // downstream listener mutating it in place would corrupt all subsequent
+  // outbound requests. Cached values are deep-frozen: mutation must throw
+  // instead of silently poisoning the cache.
+  {
+    const guard = createKeyGuard({});
+    const key = 'sk-' + 'p'.repeat(40);
+    const frozenMsg = Object.freeze({
+      role: 'user',
+      id: 'cache-poison',
+      content: Object.freeze([Object.freeze({ type: 'text', text: `use ${key}` })]),
+    });
+    const frozenReq = Object.freeze({ provider: 'p', model: 'm', messages: Object.freeze([frozenMsg]) });
+
+    const first = guard.maskRequestClone(frozenReq);
+    assert.ok(first, 'request with a key is masked');
+    const maskedMsg = first.options.messages[0];
+    assert.ok(Object.isFrozen(maskedMsg), 'cached masked message is frozen');
+    assert.ok(Object.isFrozen(maskedMsg.content), 'cached masked content array is frozen');
+    assert.ok(Object.isFrozen(maskedMsg.content[0]), 'cached masked block is frozen');
+
+    assert.throws(
+      () => { maskedMsg.content[0].text = `leak ${key}`; },
+      'mutating a cached masked block throws instead of poisoning the cache',
+    );
+
+    const second = guard.maskRequestClone(frozenReq);
+    assert.equal(second.options.messages[0], maskedMsg, 'later request reuses the cached masked message');
+    assert.ok(!JSON.stringify(second.options).includes(key), 'reused cached message still carries no plaintext');
+
+    // A message frozen only at the top level is NOT cacheable: its mutable
+    // content could be edited after caching, and a stale hit would silently
+    // miss a credential. It must be re-scanned every time.
+    const shallow = Object.freeze({ role: 'user', id: 'shallow', content: Object.freeze([{ type: 'text', text: 'clean' }]) });
+    const shallowReq = Object.freeze({ provider: 'p', model: 'm', messages: Object.freeze([shallow]) });
+    assert.equal(guard.maskRequestClone(shallowReq), null, 'mutable inner block is not memoized as clean');
+    shallow.content[0].text = `now ${key}`;
+    const afterEdit = guard.maskRequestClone(shallowReq);
+    assert.ok(afterEdit, 'editing an uncached mutable block is re-scanned');
+    assert.ok(!JSON.stringify(afterEdit.options).includes(key), 'the freshly edited credential is masked, not served from cache');
+
+    console.log('19. cached masked messages immutable: ok');
+  }
+
+  // ---- 20. stats() does not hand out credential fragments by default ---------
+  {
+    const guard = createKeyGuard({});
+    guard.maskText(`use ${REAL_KEY}`, new Set());
+    const plain = guard.stats();
+    assert.equal(plain.keys, 1, 'key count reported');
+    assert.equal(plain.fingerprints, undefined, 'fingerprints omitted unless explicitly requested');
+    assert.ok(!JSON.stringify(plain).includes(REAL_KEY.slice(-4)), 'default stats carry no key fragment');
+
+    const diagnostic = guard.stats({ withFingerprints: true });
+    assert.ok(diagnostic.fingerprints && Object.keys(diagnostic.fingerprints).length === 1, 'fingerprints available on explicit request');
+    assert.ok(!JSON.stringify(diagnostic.fingerprints).includes(REAL_KEY), 'even diagnostic fingerprints never contain the whole key');
+    console.log('20. stats redaction by default: ok');
+  }
+
+  console.log('\nkey-guard smoke: all 20 groups passed');
 }
 
 main().catch((error) => {

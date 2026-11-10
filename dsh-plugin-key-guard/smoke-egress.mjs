@@ -107,6 +107,49 @@ async function main() {
     }
   });
 
+  // ---- egress: live allowHosts edits cannot leave a stale exemption ------
+  // The exempt list is re-read per request and memoized behind a signature.
+  // A `join('\n')` signature collides: ['a','b'] and ['a\nb'] produce the same
+  // text, so one edit to the other would keep the OLD decisions and keep
+  // exempting hosts the current list no longer names — a fail-open skip of
+  // masking. The signature must distinguish any two different lists.
+  await groupAsync('4b. egress allowlist edits invalidate cached decisions', async () => {
+    const { calls, restore } = stubFetch();
+    let hosts = ['a.example', 'b.example'];
+    const egress = createEgressGuard({ guard: engine(), allowHosts: () => hosts });
+    await egress.install();
+    try {
+      await fetch('https://a.example/v1/echo', { method: 'POST', body: KEY });
+      assert.ok(calls.at(-1).init.body.includes(KEY), 'a.example exempt while listed');
+
+      // Collision-shaped edit: same join('\n') text, different list.
+      hosts = ['a.example\nb.example'];
+      await fetch('https://a.example/v1/echo', { method: 'POST', body: KEY });
+      assert.ok(!calls.at(-1).init.body.includes(KEY), 'a.example no longer exempt after a colliding edit');
+
+      // Ordinary change still invalidates.
+      hosts = ['a.example'];
+      await fetch('https://b.example/v1/echo', { method: 'POST', body: KEY });
+      assert.ok(!calls.at(-1).init.body.includes(KEY), 'removed host is masked again');
+
+      // Unusable allowHosts must never break the request: mask instead.
+      const broken = createEgressGuard({
+        guard: engine(),
+        allowHosts: () => { throw new Error('settings unavailable'); },
+      });
+      await broken.install();
+      try {
+        await fetch('https://c.example/v1/echo', { method: 'POST', body: KEY });
+        assert.ok(!calls.at(-1).init.body.includes(KEY), 'broken allowlist fails closed (still masks)');
+      } finally {
+        broken.uninstall();
+      }
+    } finally {
+      egress.uninstall();
+      restore();
+    }
+  });
+
   // ---- egress: live off switch ------------------------------------------
   await groupAsync('4. egress respects the live enabled switch', async () => {
     const { calls, restore } = stubFetch();
@@ -325,7 +368,7 @@ async function main() {
 
   console.log(
     failures === 0
-      ? '\nkey-guard boundaries: all 14 groups passed'
+      ? '\nkey-guard boundaries: all 15 groups passed'
       : `\nkey-guard boundaries: ${failures} group(s) FAILED`,
   );
   process.exit(failures === 0 ? 0 : 1);

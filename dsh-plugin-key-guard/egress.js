@@ -77,7 +77,11 @@ export function createEgressGuard({ guard, allowHosts = [], enabled = () => true
   function exemptHosts() {
     const source = typeof allowHosts === 'function' ? allowHosts() : allowHosts;
     const list = Array.isArray(source) ? source : [];
-    const signature = list.join('\n');
+    // JSON, not join('\n'): a newline separator collides — ['a','b'] and
+    // ['a\nb'] stringify to the same text, so a settings edit from one to the
+    // other would keep the stale decision cache and exempt hosts the current
+    // list no longer names (a fail-open skip of masking).
+    const signature = JSON.stringify(list.map((h) => String(h)));
     if (exemptCache.signature !== signature) {
       exemptCache = {
         signature,
@@ -94,7 +98,16 @@ export function createEgressGuard({ guard, allowHosts = [], enabled = () => true
     // Always run the signature check first: it clears hostDecisions the
     // moment the exempt list changes, so a cached entry can never outlive
     // the settings it was derived from.
-    const hosts = exemptHosts();
+    let hosts;
+    try {
+      hosts = exemptHosts();
+    } catch (error) {
+      // Config plumbing must never break the caller's request. Fail closed on
+      // the guard's own error: no exemption means the traffic still gets
+      // masked, which is the safe direction for a security layer.
+      warnOnce('exempt', `egress: exempt-host list unusable, masking everything non-local: ${String(error)}`);
+      return false;
+    }
     if (hosts.length === 0) return false;
     let skip = hostDecisions.get(host);
     if (skip === undefined) {
@@ -112,11 +125,16 @@ export function createEgressGuard({ guard, allowHosts = [], enabled = () => true
 
   /** True when this request must pass through untouched. */
   function bypass(host) {
+    let active;
     try {
-      if (!enabled()) return true;
-    } catch {
-      return true;
+      active = enabled();
+    } catch (error) {
+      // An unreadable switch must not silently turn the guard off: assume the
+      // guard is ON so traffic still gets masked (fail closed).
+      warnOnce('enabled', `egress: enabled() threw, assuming masking is on: ${String(error)}`);
+      active = true;
     }
+    if (!active) return true;
     return shouldSkipHost(host);
   }
 
