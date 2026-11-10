@@ -4,7 +4,7 @@
  * simulated llm/stream waterfall round trip.
  */
 import assert from 'node:assert/strict';
-import { createKeyGuard, normalizeConfig } from './engine.js';
+import { createKeyGuard, normalizeConfig, BUILTIN_PATTERNS } from './engine.js';
 
 const REAL_KEY = 'sk-abc123def456ghi789jkl012mno';
 const REAL_KEY_2 = 'sk-ant-api03-9ZxY8vUtSrQpOnMlKjIhGfEdCbA987654321';
@@ -282,7 +282,119 @@ async function main() {
     console.log('14. mode switch via syncRules: ok');
   }
 
-  console.log('\nkey-guard smoke: all 14 groups passed');
+  // ---- 15. prefix screen never hides a builtin key ----------------------------
+  // The screen is a security-sensitive shortcut: a false negative would let a
+  // real key through. For every builtin family, synthesize a key and prove it
+  // is still masked, and prove the fused detector matches exactly what the
+  // sequential detector would have matched on the same corpus.
+  {
+    const samples = [
+      'sk-' + 'a'.repeat(24),                    // openai-compatible
+      'sk-ant-' + 'A'.repeat(24),                // anthropic
+      'AKIA' + 'ABCDEFGHIJKLMNOP',               // aws
+      'AIza' + 'b'.repeat(35),                   // google
+      'ghp_' + 'c'.repeat(31),                   // github
+      'github_pat_' + 'd'.repeat(21),            // github fine-grained
+      'xoxb-' + 'e'.repeat(11),                  // slack
+      'glpat-' + 'f'.repeat(21),                 // gitlab
+      'hf_' + 'g'.repeat(31),                    // huggingface
+      'r8_' + 'h'.repeat(31),                    // replicate
+      // near-miss noise that must stay untouched
+      'sk-too-short', 'AKIAshort', 'prefixhfh_', 'xox-nothing',
+    ];
+    // Variants wrap the token in NON-word delimiters: the `\b` anchor in the
+    // original patterns (kept verbatim in the fused regex) deliberately does
+    // NOT match a token glued to word characters like `edgesk-…` — that is
+    // anti-false-positive design, not a gap.
+    const corpus = samples.flatMap((s) => [`use ${s} now`, `(${s})`, `${s}`]).join('\n---\n');
+
+    const guard = createKeyGuard({});
+    const usedIds = new Set();
+    const masked = guard.maskText(corpus, usedIds);
+
+    for (const key of samples.slice(0, 10)) {
+      assert.ok(!masked.includes(key), `screen+fused still masks ${key.slice(0, 8)}…`);
+    }
+    assert.ok(masked.includes('sk-too-short'), 'below-threshold token untouched');
+    assert.ok(masked.includes('prefixhfh_'), 'embedded prefix without token boundary untouched');
+
+    // Equivalence: tag every match with its first-encounter ordinal under the
+    // ORIGINAL sequential detectors, then under the fused single-pass detector
+    // (same alternation construction the engine uses). Identical tagged output
+    // proves the same match set AND the same id-assignment order.
+    const tagWith = (regexes) => {
+      const order = new Map();
+      let ordinal = 0;
+      const tag = (m) => {
+        if (!order.has(m)) order.set(m, ordinal++);
+        return `\x00${order.get(m)}\x00`;
+      };
+      let out = corpus;
+      for (const re of regexes) out = out.replace(re, tag);
+      return out;
+    };
+    const sequentialTagged = tagWith(BUILTIN_PATTERNS.map(([, re]) => new RegExp(re.source, re.flags)));
+    const fusedTagged = tagWith([new RegExp(BUILTIN_PATTERNS.map(([, re]) => re.source).join('|'), 'g')]);
+    assert.equal(fusedTagged, sequentialTagged, 'fused detector output equals sequential detector output');
+    console.log('15. screen superset + fused equivalence: ok');
+  }
+
+  // ---- 16. frozen messages are memoized across requests -----------------------
+  {
+    const guard = createKeyGuard({});
+    const frozenMsg = Object.freeze({ role: 'user', content: Object.freeze([{ type: 'text', text: `use ${REAL_KEY}` }]) });
+    const frozenReq = Object.freeze({ provider: 'p', model: 'm', messages: Object.freeze([frozenMsg]) });
+
+    const first = guard.maskRequestClone(frozenReq);
+    const second = guard.maskRequestClone(frozenReq);
+    assert.deepEqual([...second.usedIds], [...first.usedIds], 'memoized request keeps the restore set');
+    assert.equal(second.options.messages[0].content[0].text, first.options.messages[0].content[0].text, 'memoized message identical');
+
+    const stats = guard.stats().perf;
+    assert.ok(stats.cacheHits >= 1, `message cache hit recorded (${stats.cacheHits})`);
+    assert.equal(JSON.stringify(second.options).includes(REAL_KEY), false, 'memo hit still carries no plaintext');
+    console.log('16. frozen message memoization: ok');
+  }
+
+  // ---- 17. rule reload invalidates memoized messages ---------------------------
+  {
+    const guard = createKeyGuard({});
+    const TOKEN = 'TEAM_07_AB12CD34';
+    const frozenMsg = Object.freeze({ role: 'user', content: Object.freeze([{ type: 'text', text: `run ${TOKEN}` }]) });
+    const frozenReq = Object.freeze({ provider: 'p', model: 'm', messages: Object.freeze([frozenMsg]) });
+
+    const before = guard.maskRequestClone(frozenReq);
+    assert.equal(before, null, 'clean under the initial rules: no clone');
+    assert.equal(guard.maskRequestClone(frozenReq), null, 'memoized clean result: still no clone, no rescan');
+    assert.ok(guard.stats().perf.cacheHits >= 1, 'clean result is cached too');
+
+    guard.syncRules({ mode: 'placeholder', patterns: ['TEAM_\\d{2}_[A-F0-9]{8}'] });
+    const after = guard.maskRequestClone(frozenReq);
+    assert.ok(after, 'epoch bump forces a re-mask under the new pattern');
+    assert.ok(!JSON.stringify(after.options).includes(TOKEN), 'stale cache did not leak the token past the new rule');
+    console.log('17. rule reload invalidates memo: ok');
+  }
+
+  // ---- 18. perf counters are exposed and key-free -------------------------------
+  {
+    const guard = createKeyGuard({});
+    const req = request([{ role: 'user', content: [{ type: 'text', text: `use ${REAL_KEY}` }] }]);
+    guard.maskRequest(req, new WeakMap());
+    await collect(guard.wrapStream([
+      { type: 'text-delta', index: 0, text: 'ok' },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ], new Set([1])));
+
+    const { perf } = guard.stats();
+    for (const field of ['stringsScanned', 'detectorPasses', 'screenSkips', 'cacheHits', 'cacheMisses', 'requestsMasked', 'maskMs', 'chunks', 'restoreMs']) {
+      assert.ok(typeof perf[field] === 'number', `perf.${field} is numeric`);
+    }
+    assert.ok(perf.requestsMasked >= 1 && perf.chunks >= 1, 'counters actually counted');
+    assert.ok(!JSON.stringify(perf).includes(REAL_KEY), 'perf block is key-free');
+    console.log('18. perf counters: ok');
+  }
+
+  console.log('\nkey-guard smoke: all 18 groups passed');
 }
 
 main().catch((error) => {

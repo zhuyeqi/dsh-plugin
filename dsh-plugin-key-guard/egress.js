@@ -67,19 +67,47 @@ export function createEgressGuard({ guard, allowHosts = [], enabled = () => true
   /** Placeholders masked into **non-LLM** egress, so replies can be restored. */
   const outboundScope = new Set();
 
+  // Exempt-list parsing and per-host decisions are memoized: fetch is a hot
+  // path (every MCP call, every telemetry export). The list is re-read per
+  // request (live Settings), but only re-parsed — and the decision cache
+  // invalidated — when its contents actually change.
+  let exemptCache = { signature: null, hosts: [] };
+  const hostDecisions = new Map();
+
   function exemptHosts() {
     const source = typeof allowHosts === 'function' ? allowHosts() : allowHosts;
     const list = Array.isArray(source) ? source : [];
-    return list.map((h) => String(h).toLowerCase().replace(/^\./, ''));
+    const signature = list.join('\n');
+    if (exemptCache.signature !== signature) {
+      exemptCache = {
+        signature,
+        hosts: list.map((h) => String(h).toLowerCase().replace(/^\./, '')),
+      };
+      hostDecisions.clear();
+    }
+    return exemptCache.hosts;
   }
 
   function shouldSkipHost(host) {
     if (host === '') return true; // unparseable: do not risk corrupting it
     if (isLocalHost(host)) return true;
-    for (const h of exemptHosts()) {
-      if (host === h || host.endsWith(`.${h}`)) return true;
+    // Always run the signature check first: it clears hostDecisions the
+    // moment the exempt list changes, so a cached entry can never outlive
+    // the settings it was derived from.
+    const hosts = exemptHosts();
+    if (hosts.length === 0) return false;
+    let skip = hostDecisions.get(host);
+    if (skip === undefined) {
+      skip = false;
+      for (const h of hosts) {
+        if (host === h || host.endsWith(`.${h}`)) {
+          skip = true;
+          break;
+        }
+      }
+      hostDecisions.set(host, skip);
     }
-    return false;
+    return skip;
   }
 
   /** True when this request must pass through untouched. */

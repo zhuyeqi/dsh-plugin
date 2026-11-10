@@ -1,6 +1,6 @@
 {
   "name": "@zhuyeqi/dsh-plugin-key-guard",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Key security for DeepSeek Harness: masks AI/LLM API keys in outbound model context and restores placeholders in model replies, so real keys never leave this machine",
   "type": "module",

@@ -62,6 +62,24 @@ const BUILTIN_PATTERNS = [
   ['replicate-token', /\br8_[A-Za-z0-9]{30,}/g],
 ];
 
+/** All builtins fused into ONE alternation, branch order preserved exactly
+ * (the openai branch's `(?!ant-)` lookahead keeps it disjoint from anthropic),
+ * so a single scan pass replaces ten. Compiled once: `String.replace` with a
+ * /g regex resets lastIndex, so sharing this instance across calls is safe. */
+const FUSED_BUILTIN = new RegExp(BUILTIN_PATTERNS.map(([, re]) => re.source).join('|'), 'g');
+
+/** Cheap pre-screen: every builtin match begins with one of these literal
+ * prefixes. A screen miss proves no builtin can match (case-insensitive
+ * superset of the case-sensitive originals), so the overwhelming "no
+ * credential here" string never reaches the detector at all. Non-global, so
+ * `.test()` carries no lastIndex state. */
+const BUILTIN_SCREEN = /(?:sk-|akia|aiza|gh[pousr]_|github_pat_|xox|glpat-|hf_|r8_)/i;
+
+/** Monotonic clock for perf counters; performance.now when available. */
+const now = typeof performance !== 'undefined' && typeof performance.now === 'function'
+  ? () => performance.now()
+  : () => Date.now();
+
 /** Longest built-in match length is ~200 chars; placeholders are ~16. */
 const MAX_PLACEHOLDER_CHARS = 16;
 
@@ -100,6 +118,29 @@ export function createKeyGuard(rawOptions = {}) {
   let extraPatterns = [];
   let exactKeys = [];
 
+  // --- memoized masking of immutable messages ------------------------------
+  // DSH deep-freezes each session message once and reuses the same object
+  // across requests, so a frozen message's masked form depends only on the
+  // rules. Cache it per message (WeakMap: entries die with the message);
+  // `rulesEpoch` bumps on every syncRules, invalidating the whole cache in
+  // one step. Only frozen messages are cached — mutable ones could be edited
+  // after caching, and a stale miss would be a security hole, not a bug.
+  const messageCache = new WeakMap();
+  let rulesEpoch = 0;
+
+  // --- perf counters, exposed via stats() (numbers only, never keys) -------
+  const perf = {
+    stringsScanned: 0,   // maskText invocations
+    detectorPasses: 0,   // strings that reached a detector regex
+    screenSkips: 0,      // strings skipped wholesale by the prefix screen
+    cacheHits: 0,        // message-cache hits
+    cacheMisses: 0,      // message-cache misses (frozen messages only)
+    requestsMasked: 0,   // outbound passes that actually masked something
+    maskMs: 0,           // CPU time in outbound masking
+    chunks: 0,           // stream chunks processed by restore
+    restoreMs: 0,        // CPU time in inbound restore
+  };
+
   function buildRules(raw) {
     const nextMode = raw.mode === 'redact' ? 'redact' : 'placeholder';
     const patterns = [];
@@ -125,6 +166,7 @@ export function createKeyGuard(rawOptions = {}) {
     mode = next.mode;
     extraPatterns = next.extraPatterns;
     exactKeys = next.exactKeys;
+    rulesEpoch += 1; // invalidate every memoized message in one step
   }
 
   syncRules(rawOptions);
@@ -135,6 +177,7 @@ export function createKeyGuard(rawOptions = {}) {
   // detect "unchanged" without comparing contents.
   function maskText(text, usedIds) {
     if (typeof text !== 'string' || text.length === 0) return text;
+    perf.stringsScanned += 1;
     let out = text;
 
     for (const key of exactKeys) {
@@ -144,18 +187,22 @@ export function createKeyGuard(rawOptions = {}) {
       out = out.split(key).join(placeholderFor(id, mode));
     }
 
-    for (const [, pattern] of BUILTIN_PATTERNS) {
-      const re = new RegExp(pattern.source, pattern.flags);
-      out = out.replace(re, (match) => {
+    // Builtins: prefix screen first; the fused detector only runs on a hit.
+    // (extraPatterns have no knowable prefix, so they always run when set.)
+    if (BUILTIN_SCREEN.test(out)) {
+      perf.detectorPasses += 1;
+      out = out.replace(FUSED_BUILTIN, (match) => {
         const id = idFor(match);
         usedIds.add(id);
         return placeholderFor(id, mode);
       });
+    } else {
+      perf.screenSkips += 1;
     }
 
     for (const re of extraPatterns) {
-      const scan = new RegExp(re.source, re.flags);
-      out = out.replace(scan, (match) => {
+      perf.detectorPasses += 1;
+      out = out.replace(re, (match) => {
         const id = idFor(match);
         usedIds.add(id);
         return placeholderFor(id, mode);
@@ -194,20 +241,41 @@ export function createKeyGuard(rawOptions = {}) {
   }
 
   /** Copy-on-write masking of one message. Returns the original reference
-   * when nothing changed. Never mutates the input message. */
+   * when nothing changed. Never mutates the input message.
+   *
+   * Frozen messages (the DSH norm — each session message is deep-frozen once
+   * and reused by object identity across requests) are memoized per rules
+   * epoch, so re-masking a long context only scans the NEW tail, not the
+   * whole history, on every request. */
   function maskMessage(message, usedIds) {
     if (message === null || typeof message !== 'object') return message;
+
+    const cacheable = Object.isFrozen(message);
+    if (cacheable) {
+      const hit = messageCache.get(message);
+      if (hit !== undefined && hit.epoch === rulesEpoch) {
+        perf.cacheHits += 1;
+        for (const id of hit.ids) usedIds.add(id);
+        return hit.masked;
+      }
+    }
+
+    const local = new Set();
+    let masked = message;
     if (Array.isArray(message.content)) {
-      const content = maskBlocks(message.content, usedIds);
-      if (content === message.content) return message;
-      return { ...message, content };
+      const content = maskBlocks(message.content, local);
+      if (content !== message.content) masked = { ...message, content };
+    } else if (typeof message.content === 'string') {
+      const content = maskText(message.content, local);
+      if (content !== message.content) masked = { ...message, content };
     }
-    if (typeof message.content === 'string') {
-      const content = maskText(message.content, usedIds);
-      if (content === message.content) return message;
-      return { ...message, content };
+
+    if (cacheable) {
+      perf.cacheMisses += 1;
+      messageCache.set(message, { epoch: rulesEpoch, masked, ids: [...local] });
     }
-    return message;
+    for (const id of local) usedIds.add(id);
+    return masked;
   }
 
   /**
@@ -226,29 +294,35 @@ export function createKeyGuard(rawOptions = {}) {
   function maskRequest(options, state) {
     if (options === null || typeof options !== 'object') return undefined;
     if (Object.isFrozen(options)) return undefined; // caller re-enters with a masked clone
-    const prior = state.get(options);
-    const usedIds = prior ?? new Set();
-    let changed = prior !== undefined;
+    const startedAt = now();
+    try {
+      const prior = state.get(options);
+      const usedIds = prior ?? new Set();
+      let changed = prior !== undefined;
 
-    if (Array.isArray(options.messages)) {
-      const masked = options.messages.map((message) => maskMessage(message, usedIds));
-      if (masked.some((message, i) => message !== options.messages[i])) {
-        options.messages = masked;
-        changed = true;
+      if (Array.isArray(options.messages)) {
+        const masked = options.messages.map((message) => maskMessage(message, usedIds));
+        if (masked.some((message, i) => message !== options.messages[i])) {
+          options.messages = masked;
+          changed = true;
+        }
       }
-    }
 
-    if (typeof options.system === 'string' && options.system.length > 0) {
-      const system = maskText(options.system, usedIds);
-      if (system !== options.system) {
-        options.system = system;
-        changed = true;
+      if (typeof options.system === 'string' && options.system.length > 0) {
+        const system = maskText(options.system, usedIds);
+        if (system !== options.system) {
+          options.system = system;
+          changed = true;
+        }
       }
-    }
 
-    if (!changed) return undefined;
-    state.set(options, usedIds);
-    return usedIds;
+      if (!changed) return undefined;
+      state.set(options, usedIds);
+      perf.requestsMasked += 1;
+      return usedIds;
+    } finally {
+      perf.maskMs += now() - startedAt;
+    }
   }
 
   /**
@@ -259,20 +333,26 @@ export function createKeyGuard(rawOptions = {}) {
    */
   function maskRequestClone(options) {
     if (options === null || typeof options !== 'object') return null;
-    const usedIds = new Set();
-    const messages = Array.isArray(options.messages)
-      ? options.messages.map((message) => maskMessage(message, usedIds))
-      : options.messages;
-    const system = typeof options.system === 'string' && options.system.length > 0
-      ? maskText(options.system, usedIds)
-      : options.system;
-    const unchanged = messages === options.messages
-      || (Array.isArray(messages) && Array.isArray(options.messages)
-        && messages.every((message, i) => message === options.messages[i]));
-    if (unchanged && system === options.system) return null;
-    const clone = { ...options, messages };
-    if (system !== undefined) clone.system = system;
-    return { options: clone, usedIds };
+    const startedAt = now();
+    try {
+      const usedIds = new Set();
+      const messages = Array.isArray(options.messages)
+        ? options.messages.map((message) => maskMessage(message, usedIds))
+        : options.messages;
+      const system = typeof options.system === 'string' && options.system.length > 0
+        ? maskText(options.system, usedIds)
+        : options.system;
+      const unchanged = messages === options.messages
+        || (Array.isArray(messages) && Array.isArray(options.messages)
+          && messages.every((message, i) => message === options.messages[i]));
+      if (unchanged && system === options.system) return null;
+      const clone = { ...options, messages };
+      if (system !== undefined) clone.system = system;
+      perf.requestsMasked += 1;
+      return { options: clone, usedIds };
+    } finally {
+      perf.maskMs += now() - startedAt;
+    }
   }
 
   // --- restoration ---------------------------------------------------------
@@ -401,7 +481,10 @@ export function createKeyGuard(rawOptions = {}) {
   async function* wrapStream(iterable, allowedIds) {
     const restorer = makeStreamRestorer(allowedIds);
     for await (const chunk of iterable) {
+      const startedAt = now();
       yield* restorer.processChunk(chunk);
+      perf.chunks += 1;
+      perf.restoreMs += now() - startedAt;
     }
   }
 
@@ -419,13 +502,15 @@ export function createKeyGuard(rawOptions = {}) {
     wrapStream,
     /** Restore every placeholder in `text` that was masked into this egress. */
     restoreAll,
-    /** Diagnostics: masked key count and id->fingerprint map (never the keys). */
+    /** Diagnostics: masked key count, id->fingerprint map (never the keys),
+     * and perf counters — scan/screen/cache hit rates and CPU time — so the
+     * cost of the guard is observable without a profiler. */
     stats() {
       const fingerprints = {};
       for (const [id, key] of keyById) {
         fingerprints[id] = `${key.slice(0, 3)}…${key.slice(-4)} (${key.length})`;
       }
-      return { mode, keys: idByKey.size, fingerprints };
+      return { mode, keys: idByKey.size, fingerprints, perf: { ...perf } };
     },
   };
 }

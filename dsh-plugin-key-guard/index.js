@@ -132,6 +132,13 @@ export function apply(ctx, config) {
     onWarn: (message) => ctx.logger.warn(`key-guard: ${message}`),
   });
 
+  // Registered with `prepend` so key-guard is the OUTERMOST listener: the
+  // frozen-request re-entry (llm.stream below) re-runs the waterfall, and
+  // every listener positioned above key-guard would otherwise run twice per
+  // masked request — session checkpointing (a disk flush) and title
+  // bookkeeping included. Outermost, the outer pass stops here and the
+  // re-entered pass runs everything exactly once. Downstream listeners then
+  // observe masked options, which is also the privacy-safer side to err on.
   ctx.on(
     'llm/stream',
     (options, next) => {
@@ -144,9 +151,12 @@ export function apply(ctx, config) {
         return guard.wrapStream(next(), allowedIds);
       }
 
-      // Path 2: nothing detected, or a frozen request. Frozen requests are
-      // the DSH norm — clone, mask, and re-enter the waterfall so every other
-      // middleware (retry, validation, routing) still sees a real stream.
+      // Path 2 exists solely for FROZEN requests (the DSH norm): maskRequest
+      // cannot assign onto a frozen object, so clone, mask, and re-enter the
+      // waterfall. An unfrozen request that reaches here was already scanned
+      // whole and found clean — cloning it would only re-scan it for nothing.
+      if (!Object.isFrozen(options)) return next();
+
       const clone = guard.maskRequestClone(options);
       if (clone === null) return next();
 
@@ -163,11 +173,17 @@ export function apply(ctx, config) {
       );
       return guard.wrapStream(llm.stream(clone.options), clone.usedIds);
     },
-    { global: true },
+    { global: true, prepend: true },
   );
 
   ctx.effect(() => () => {
-    ctx.logger.info(`key-guard: stopped after masking ${maskedRequests} request(s)`);
+    const { perf } = guard.stats();
+    ctx.logger.info(
+      `key-guard: stopped after masking ${maskedRequests} request(s) `
+      + `(${perf.stringsScanned} strings scanned, ${perf.screenSkips} screen-skipped, `
+      + `${perf.cacheHits}/${perf.cacheHits + perf.cacheMisses} message-cache hits, `
+      + `mask ${perf.maskMs.toFixed(1)}ms / restore ${perf.restoreMs.toFixed(1)}ms)`,
+    );
   });
 
   // Tell the model what the placeholders mean, so it references them like the
